@@ -12,11 +12,6 @@ const region = aws_exports.REGION
 const auth_type = AUTH_TYPE.API_KEY
 const api_key = aws_exports.API_KEY
 
-const AWS = require('aws-sdk')
-AWS.config.update({
-    region: region,
-})
-
 const client = new AWSAppSyncClient({
     url: url,
     region: region,
