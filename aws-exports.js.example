@@ -1,0 +1,7 @@
+'use strict'
+
+exports.default = {
+	APPSYNC_URL: '',
+	API_KEY: '',
+	REGION: '',
+}
