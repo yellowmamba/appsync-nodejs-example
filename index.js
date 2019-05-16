@@ -16,7 +16,6 @@ const AWS = require('aws-sdk')
 AWS.config.update({
     region: region,
 })
-const credentials = AWS.config.credentials
 
 const client = new AWSAppSyncClient({
     url: url,
