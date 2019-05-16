@@ -6,3 +6,4 @@ This project is an example Nodejs app that queries an Appsync endpoint in AWS. S
 
 1. `cp aws-exports.js.example aws-exports.js`
 2. Fill details in `aws-exports.js`
+3. `npm install`
