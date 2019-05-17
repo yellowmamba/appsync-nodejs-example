@@ -1,0 +1,171 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Sample AWS Appsync SAM template'
+Transform: AWS::Serverless-2016-10-31
+
+Parameters:
+
+  APIName:
+    Type: String
+    Default: aws_sample_todo
+
+Resources:
+
+  GraphQLApiKey:
+    Type: AWS::AppSync::ApiKey
+    Properties:
+      ApiId: !GetAtt TodoGraphQLApi.ApiId
+
+
+  TodoGraphQLApi:
+    Type: AWS::AppSync::GraphQLApi
+    Properties:
+      Name: "Sample AWS Todo API"
+      AuthenticationType: API_KEY
+      LogConfig:
+        CloudWatchLogsRoleArn: !GetAtt AppSyncServiceRole.Arn
+        FieldLogLevel: "ALL"
+
+  TodoAppSyncSchema:
+    Type: "AWS::AppSync::GraphQLSchema"
+    Properties:
+      ApiId: !GetAtt TodoGraphQLApi.ApiId
+      DefinitionS3Location: ./schema.graphql
+
+  AppSyncServiceRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Sub ${APIName}-appsync-cwlogs-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "appsync.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSAppSyncPushToCloudWatchLogs
+
+  TodoDynamoDBTable:
+    Type: "AWS::DynamoDB::Table"
+    Description: "Data storage for Appsync Todo"
+    Properties:
+      TableName: !Sub ${APIName}-table
+      AttributeDefinitions:
+        - AttributeName: "id"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "id"
+          KeyType: "HASH"
+      BillingMode: PAY_PER_REQUEST
+
+  DynamoDBRole:
+    Type: AWS::IAM::Role
+    DependsOn:
+      AppSyncDynamoDBPolicy
+    Properties:
+      RoleName: !Sub ${APIName}-appsync-dynamodb-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "appsync.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - Ref: AppSyncDynamoDBPolicy
+
+  AppSyncDynamoDBPolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+      Description: "Managed policy to allow Appsync to access the Dynamodb table"
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - dynamodb:GetItem
+              - dynamodb:PutItem
+              - dynamodb:DeleteItem
+              - dynamodb:UpdateItem
+              - dynamodb:Query
+              - dynamodb:Scan
+              - dynamodb:BatchGetItem
+              - dynamodb:BatchWriteItem
+            Resource: !Join [ "", [ !GetAtt TodoDynamoDBTable.Arn, "*" ] ]
+
+  AppSyncTodoDataSource:
+    Type: "AWS::AppSync::DataSource"
+    Properties:
+      ApiId: !GetAtt TodoGraphQLApi.ApiId
+      Name: !Sub ${APIName}_todo_table
+      Type: AMAZON_DYNAMODB
+      ServiceRoleArn: !GetAtt DynamoDBRole.Arn
+      DynamoDBConfig:
+        AwsRegion: !Sub ${AWS::Region}
+        TableName: !Ref TodoDynamoDBTable
+
+  AppSyncGetTodosResolver:
+    Type: "AWS::AppSync::Resolver"
+    DependsOn: TodoAppSyncSchema
+    Properties:
+      ApiId: !GetAtt TodoGraphQLApi.ApiId
+      FieldName: getTodos
+      TypeName: Query
+      DataSourceName: !GetAtt AppSyncTodoDataSource.Name
+      RequestMappingTemplate: |
+        {
+          "version": "2017-02-28",
+          "operation": "Scan",
+          "limit": $util.defaultIfNull(${ctx.args.limit}, 2),
+          "nextToken": $util.toJson(${ctx.args.nextToken})
+        }
+      ResponseMappingTemplate: |
+        {
+          "todos": $util.toJson($ctx.result.items),
+          "nextToken": $util.toJson(${ctx.result.nextToken})
+        }
+
+  AppSyncAddTodoResolver:
+    Type: "AWS::AppSync::Resolver"
+    DependsOn: TodoAppSyncSchema
+    Properties:
+      ApiId: !GetAtt TodoGraphQLApi.ApiId
+      FieldName: addTodo
+      TypeName: Mutation
+      DataSourceName: !GetAtt AppSyncTodoDataSource.Name
+      RequestMappingTemplate: |
+        {
+          "version": "2017-02-28",
+          "operation": "PutItem",
+          "key": {
+            "id": $util.dynamodb.toDynamoDBJson($ctx.args.id),
+          },
+          "attributeValues": {
+            "name": $util.dynamodb.toDynamoDBJson($ctx.args.name),
+            "description": $util.dynamodb.toDynamoDBJson($ctx.args.description),
+            "priority": $util.dynamodb.toDynamoDBJson($ctx.args.priority),
+            "status": $util.dynamodb.toDynamoDBJson($ctx.args.status)
+          }
+        }
+      ResponseMappingTemplate: "$util.toJson($ctx.result)"
+
+Outputs:
+  TodoGraphQLApiId:
+    Description: API ID of the Todo Appsync API
+    Value: !GetAtt TodoGraphQLApi.ApiId
+    Export:
+      Name: !Sub "${AWS::StackName}-TodoGraphQLApiId"
+  GraphQLApiUrl:
+    Description: The Endpoint URL of Todo GraphQL API.
+    Value: !GetAtt TodoGraphQLApi.GraphQLUrl
+    Export:
+      Name: !Sub "${AWS::StackName}-TicketsGraphQLApiUrl"
+  DynamoDBTodoTableName:
+    Description: The Dynamodb table name
+    Value: !Ref TodoDynamoDBTable
+    Export:
+      Name: !Sub "${AWS::StackName}-DynamoDBTable"
