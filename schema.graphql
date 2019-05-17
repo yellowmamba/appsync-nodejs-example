@@ -6,6 +6,7 @@ schema {
 type Query {
   getTodos(limit: Int, nextToken: String): TodoConnection
   getTodoById(id: String): Todo
+  getCommentsByTodoId(todoId: ID!): CommentConnection
 }
 
 type Mutation {
@@ -16,6 +17,11 @@ type Mutation {
     priority: Int,
     status: TodoStatus
   ): Todo
+
+  addComment(
+    todoId: ID!
+    content: String
+  ): Comment
 }
 
 type Todo {
@@ -24,6 +30,7 @@ type Todo {
   description: String
   priority: Int
   status: TodoStatus
+  comments: [Comment]
 }
 
 type TodoConnection {
@@ -34,4 +41,15 @@ type TodoConnection {
 enum TodoStatus {
   done
   pending
+}
+
+type Comment {
+  todoId: ID!
+  commentId: String!
+  content: String
+}
+
+type CommentConnection {
+  comments: [Comment]
+  nextToken: String
 }
