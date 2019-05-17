@@ -118,7 +118,7 @@ Resources:
       DataSourceName: !GetAtt AppSyncTodoDataSource.Name
       RequestMappingTemplate: |
         {
-          "version": "2017-02-28",
+          "version": "2018-05-29",
           "operation": "Scan",
           "limit": $util.defaultIfNull(${ctx.args.limit}, 2),
           "nextToken": $util.toJson(${ctx.args.nextToken})
@@ -128,6 +128,25 @@ Resources:
           "todos": $util.toJson($ctx.result.items),
           "nextToken": $util.toJson(${ctx.result.nextToken})
         }
+
+  AppSyncGetTodoByIdResolver:
+    Type: "AWS::AppSync::Resolver"
+    DependsOn: TodoAppSyncSchema
+    Properties:
+      ApiId: !GetAtt TodoGraphQLApi.ApiId
+      FieldName: getTodoById
+      TypeName: Query
+      DataSourceName: !GetAtt AppSyncTodoDataSource.Name
+      RequestMappingTemplate: |
+        {
+          "version": "2018-05-29",
+          "operation": "GetItem",
+          "key": {
+            "id": { "S": "${ctx.args.id}" }
+          }
+        }
+      ResponseMappingTemplate: $util.toJson($context.result)
+
 
   AppSyncAddTodoResolver:
     Type: "AWS::AppSync::Resolver"
@@ -139,7 +158,7 @@ Resources:
       DataSourceName: !GetAtt AppSyncTodoDataSource.Name
       RequestMappingTemplate: |
         {
-          "version": "2017-02-28",
+          "version": "2018-05-29",
           "operation": "PutItem",
           "key": {
             "id": $util.dynamodb.toDynamoDBJson($ctx.args.id),

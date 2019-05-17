@@ -5,6 +5,7 @@ schema {
 
 type Query {
   getTodos(limit: Int, nextToken: String): TodoConnection
+  getTodoById(id: String): Todo
 }
 
 type Mutation {
