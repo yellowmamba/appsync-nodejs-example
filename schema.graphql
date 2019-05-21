@@ -6,7 +6,7 @@ schema {
 type Query {
   getTodos(limit: Int, nextToken: String): TodoConnection
   getTodoById(id: String): Todo
-  getCommentsByTodoId(todoId: ID!): CommentConnection
+  getCommentsByTodoId(todoId: ID!, limit: Int, nextToken: String): CommentConnection
 }
 
 type Mutation {

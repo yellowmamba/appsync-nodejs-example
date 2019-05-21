@@ -49,7 +49,6 @@ Resources:
 
   TodoDynamoDBTable:
     Type: "AWS::DynamoDB::Table"
-    Description: "Data storage for Appsync Todo"
     Properties:
       TableName: !Sub ${APIName}-table
       AttributeDefinitions:
@@ -60,10 +59,25 @@ Resources:
           KeyType: "HASH"
       BillingMode: PAY_PER_REQUEST
 
+  TodoCommentDynamoDBTable:
+    Type: "AWS::DynamoDB::Table"
+    Properties:
+      TableName: !Sub ${APIName}-comment-table
+      AttributeDefinitions:
+        - AttributeName: "todoId"
+          AttributeType: "S"
+        - AttributeName: "commentId"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "todoId"
+          KeyType: "HASH"
+        - AttributeName: "commentId"
+          KeyType: "RANGE"
+      BillingMode: PAY_PER_REQUEST
+
+
   DynamoDBRole:
     Type: AWS::IAM::Role
-    DependsOn:
-      AppSyncDynamoDBPolicy
     Properties:
       RoleName: !Sub ${APIName}-appsync-dynamodb-role
       AssumeRolePolicyDocument:
@@ -95,7 +109,15 @@ Resources:
               - dynamodb:Scan
               - dynamodb:BatchGetItem
               - dynamodb:BatchWriteItem
-            Resource: !Join [ "", [ !GetAtt TodoDynamoDBTable.Arn, "*" ] ]
+            Resource:
+              - !Join
+                - ""
+                - - !GetAtt TodoDynamoDBTable.Arn 
+                  - "*"
+              - !Join
+                - ""
+                - - !GetAtt TodoCommentDynamoDBTable.Arn
+                  - "*"
 
   AppSyncTodoDataSource:
     Type: "AWS::AppSync::DataSource"
@@ -107,6 +129,17 @@ Resources:
       DynamoDBConfig:
         AwsRegion: !Sub ${AWS::Region}
         TableName: !Ref TodoDynamoDBTable
+
+  AppSyncTodoCommentDataSource:
+    Type: "AWS::AppSync::DataSource"
+    Properties:
+      ApiId: !GetAtt TodoGraphQLApi.ApiId
+      Name: !Sub ${APIName}_todo_comment_table
+      Type: AMAZON_DYNAMODB
+      ServiceRoleArn: !GetAtt DynamoDBRole.Arn
+      DynamoDBConfig:
+        AwsRegion: !Sub ${AWS::Region}
+        TableName: !Ref TodoCommentDynamoDBTable
 
   AppSyncGetTodosResolver:
     Type: "AWS::AppSync::Resolver"
@@ -142,11 +175,60 @@ Resources:
           "version": "2018-05-29",
           "operation": "GetItem",
           "key": {
-            "id": { "S": "${ctx.args.id}" }
+            "id": $util.dynamodb.toDynamoDBJson(${ctx.args.id})
           }
         }
       ResponseMappingTemplate: $util.toJson($context.result)
 
+  AppSyncGetTodoCommentsResolver:
+    Type: "AWS::AppSync::Resolver"
+    DependsOn: TodoAppSyncSchema
+    Properties:
+      ApiId: !GetAtt TodoGraphQLApi.ApiId
+      FieldName: comments
+      TypeName: Todo
+      DataSourceName: !GetAtt AppSyncTodoCommentDataSource.Name
+      RequestMappingTemplate: |
+        {
+          "version": "2018-05-29",
+          "operation": "Query",
+          "query": {
+            "expression": "#todoId = :todoId",
+            "expressionNames": {
+              "#todoId": "todoId"
+            },
+            "expressionValues": {
+              ":todoId": $util.dynamodb.toDynamoDBJson(${ctx.source.id})
+            }
+          },
+        }
+      ResponseMappingTemplate: $util.toJson($context.result.items)
+
+  AppSyncGetCommentsByTodoIdResolver:
+    Type: "AWS::AppSync::Resolver"
+    DependsOn: TodoAppSyncSchema
+    Properties:
+      ApiId: !GetAtt TodoGraphQLApi.ApiId
+      FieldName: getCommentsByTodoId
+      TypeName: Query
+      DataSourceName: !GetAtt AppSyncTodoCommentDataSource.Name
+      RequestMappingTemplate: |
+        {
+          "version": "2018-05-29",
+          "operation": "Query",
+          "query": {
+            "expression": "#todoId = :todoId",
+            "expressionNames": {
+              "#todoId": "todoId"
+            },
+            "expressionValues": {
+              ":todoId": $util.dynamodb.toDynamoDBJson(${ctx.args.todoId})
+            }
+          },
+          "nextToken": $util.toJson(${ctx.args.nextToken}),
+          "limit": $util.defaultIfNull(${ctx.args.limit}, 2),
+        }
+      ResponseMappingTemplate: $util.toJson($context.result.items)
 
   AppSyncAddTodoResolver:
     Type: "AWS::AppSync::Resolver"
@@ -172,6 +254,28 @@ Resources:
         }
       ResponseMappingTemplate: "$util.toJson($ctx.result)"
 
+  AppSyncAddCommentResolver:
+    Type: "AWS::AppSync::Resolver"
+    DependsOn: TodoAppSyncSchema
+    Properties:
+      ApiId: !GetAtt TodoGraphQLApi.ApiId
+      FieldName: addComment
+      TypeName: Mutation
+      DataSourceName: !GetAtt AppSyncTodoCommentDataSource.Name
+      RequestMappingTemplate: |
+        {
+          "version": "2018-05-29",
+          "operation": "PutItem",
+          "key": {
+            "todoId": $util.dynamodb.toDynamoDBJson($ctx.args.todoId),
+            "commentId": $util.dynamodb.toDynamoDBJson($utils.autoId()),
+          },
+          "attributeValues": {
+            "content": $util.dynamodb.toDynamoDBJson($ctx.args.content)
+          }
+        }
+      ResponseMappingTemplate: "$util.toJson($ctx.result)"
+
 Outputs:
   TodoGraphQLApiId:
     Description: API ID of the Todo Appsync API
@@ -184,7 +288,7 @@ Outputs:
     Export:
       Name: !Sub "${AWS::StackName}-TicketsGraphQLApiUrl"
   DynamoDBTodoTableName:
-    Description: The Dynamodb table name
+    Description: The Dynamodb todo table name
     Value: !Ref TodoDynamoDBTable
     Export:
       Name: !Sub "${AWS::StackName}-DynamoDBTable"
