@@ -17,6 +17,13 @@ Resources:
       Handler: index.handler
       FunctionName: !Sub ${APIName}-description-lambda
 
+  ToDoDescriptionLambda2:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Runtime: nodejs8.10
+      Handler: index.handler2
+      FunctionName: !Sub ${APIName}-description-lambda-2
+
   GraphQLApiKey:
     Type: AWS::AppSync::ApiKey
     Properties:
@@ -164,16 +171,25 @@ Resources:
         AwsRegion: !Sub ${AWS::Region}
         TableName: !Ref TodoCommentDynamoDBTable
 
-  AppSyncTodoDescriptionDataSource:
+  AppSyncTodoDescriptionFuncOneDataSource:
     Type: "AWS::AppSync::DataSource"
     Properties:
       ApiId: !GetAtt TodoGraphQLApi.ApiId
-      Name: !Sub ${APIName}_todo_desc_lambda
+      Name: !Sub ${APIName}_todo_desc_lambda_1
       Type: AWS_LAMBDA
       ServiceRoleArn: !GetAtt LambdaRole.Arn
       LambdaConfig:
         LambdaFunctionArn: !GetAtt ToDoDescriptionLambda.Arn
 
+  AppSyncTodoDescriptionFuncTwoDataSource:
+    Type: "AWS::AppSync::DataSource"
+    Properties:
+      ApiId: !GetAtt TodoGraphQLApi.ApiId
+      Name: !Sub ${APIName}_todo_desc_lambda_2
+      Type: AWS_LAMBDA
+      ServiceRoleArn: !GetAtt LambdaRole.Arn
+      LambdaConfig:
+        LambdaFunctionArn: !GetAtt ToDoDescriptionLambda2.Arn
 
   AppSyncGetTodosResolver:
     Type: "AWS::AppSync::Resolver"
@@ -245,17 +261,49 @@ Resources:
       ApiId: !GetAtt TodoGraphQLApi.ApiId
       FieldName: description
       TypeName: Todo
-      DataSourceName: !GetAtt AppSyncTodoDescriptionDataSource.Name
+      Kind: PIPELINE
+      RequestMappingTemplate: |
+        #set($payload = {"todoId": $ctx.source.id})
+        $util.toJson($payload)
+      ResponseMappingTemplate: $utils.toJson($context.result)
+      PipelineConfig:
+        Functions:
+          - !GetAtt AppSyncTodoDescriptionFunctionOne.FunctionId
+          - !GetAtt AppSyncTodoDescriptionFunctionTwo.FunctionId
+
+  AppSyncTodoDescriptionFunctionOne:
+    Type: "AWS::AppSync::FunctionConfiguration"
+    Properties:
+      ApiId: !GetAtt TodoGraphQLApi.ApiId
+      DataSourceName: !GetAtt AppSyncTodoDescriptionFuncOneDataSource.Name
+      Name: !Sub ${APIName}_desc_func_1
+      FunctionVersion: "2018-05-29"
       RequestMappingTemplate: |
         {
           "version": "2017-02-28",
           "operation": "Invoke",
           "payload": {
-            "arguments": $utils.toJson($ctx.args),
-            "data": "Lambda todo description. Todo ID: ${ctx.source.id}"
+            "data": $util.toJson($ctx.prev.result)
           }
         }
-      ResponseMappingTemplate: $utils.toJson($context.result)
+      ResponseMappingTemplate: $util.toJson($ctx.result)
+
+  AppSyncTodoDescriptionFunctionTwo:
+    Type: "AWS::AppSync::FunctionConfiguration"
+    Properties:
+      ApiId: !GetAtt TodoGraphQLApi.ApiId
+      DataSourceName: !GetAtt AppSyncTodoDescriptionFuncTwoDataSource.Name
+      Name: !Sub ${APIName}_desc_func_2
+      FunctionVersion: "2018-05-29"
+      RequestMappingTemplate: |
+        {
+          "version": "2017-02-28",
+          "operation": "Invoke",
+          "payload": {
+            "description": $util.toJson($ctx.prev.result)
+          }
+        }
+      ResponseMappingTemplate: $util.toJson($ctx.result)
 
   AppSyncGetCommentsByTodoIdResolver:
     Type: "AWS::AppSync::Resolver"
