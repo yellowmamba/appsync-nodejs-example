@@ -10,6 +10,13 @@ Parameters:
 
 Resources:
 
+  ToDoDescriptionLambda:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Runtime: nodejs8.10
+      Handler: index.handler
+      FunctionName: !Sub ${APIName}-description-lambda
+
   GraphQLApiKey:
     Type: AWS::AppSync::ApiKey
     Properties:
@@ -92,6 +99,22 @@ Resources:
       ManagedPolicyArns:
         - Ref: AppSyncDynamoDBPolicy
 
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${APIName}-appsync-lambda-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "appsync.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaRole
+
   AppSyncDynamoDBPolicy:
     Type: "AWS::IAM::ManagedPolicy"
     Properties:
@@ -140,6 +163,17 @@ Resources:
       DynamoDBConfig:
         AwsRegion: !Sub ${AWS::Region}
         TableName: !Ref TodoCommentDynamoDBTable
+
+  AppSyncTodoDescriptionDataSource:
+    Type: "AWS::AppSync::DataSource"
+    Properties:
+      ApiId: !GetAtt TodoGraphQLApi.ApiId
+      Name: !Sub ${APIName}_todo_desc_lambda
+      Type: AWS_LAMBDA
+      ServiceRoleArn: !GetAtt LambdaRole.Arn
+      LambdaConfig:
+        LambdaFunctionArn: !GetAtt ToDoDescriptionLambda.Arn
+
 
   AppSyncGetTodosResolver:
     Type: "AWS::AppSync::Resolver"
@@ -203,6 +237,25 @@ Resources:
           },
         }
       ResponseMappingTemplate: $util.toJson($context.result.items)
+
+  AppSyncTodoDescriptionResolver:
+    Type: "AWS::AppSync::Resolver"
+    DependsOn: TodoAppSyncSchema
+    Properties:
+      ApiId: !GetAtt TodoGraphQLApi.ApiId
+      FieldName: description
+      TypeName: Todo
+      DataSourceName: !GetAtt AppSyncTodoDescriptionDataSource.Name
+      RequestMappingTemplate: |
+        {
+          "version": "2017-02-28",
+          "operation": "Invoke",
+          "payload": {
+            "arguments": $utils.toJson($ctx.args),
+            "data": "Lambda todo description. Todo ID: ${ctx.source.id}"
+          }
+        }
+      ResponseMappingTemplate: $utils.toJson($context.result)
 
   AppSyncGetCommentsByTodoIdResolver:
     Type: "AWS::AppSync::Resolver"
