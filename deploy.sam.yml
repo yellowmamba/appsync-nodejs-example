@@ -24,20 +24,131 @@ Resources:
       Handler: index.handler2
       FunctionName: !Sub ${APIName}-description-lambda-2
 
-  GraphQLApiKey:
-    Type: AWS::AppSync::ApiKey
-    Properties:
-      ApiId: !GetAtt TodoGraphQLApi.ApiId
-
-
   TodoGraphQLApi:
     Type: AWS::AppSync::GraphQLApi
     Properties:
       Name: "Sample AWS Todo API"
-      AuthenticationType: API_KEY
+      AuthenticationType: AWS_IAM
       LogConfig:
         CloudWatchLogsRoleArn: !GetAtt AppSyncServiceRole.Arn
         FieldLogLevel: "ALL"
+
+  MyCognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub ${APIName}-user-pool
+      AutoVerifiedAttributes:
+        - email
+      MfaConfiguration: "OFF"
+      LambdaConfig:
+        PostAuthentication: !GetAtt MyPostCognitoAuthFunc.Arn
+
+  MyPostCognitoAuthFunc:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: index.postCognitoAuth
+      Role: !GetAtt MyCognitoLambdaRole.Arn
+      Runtime: nodejs8.10
+      CodeUri: ./index.js
+
+  MyCognitoLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${APIName}-cognito-postauth
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AWSXrayWriteOnlyAccess
+
+  MyCognitoAppClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref MyCognitoUserPool
+      ClientName: !Sub ${APIName}-app-client
+      GenerateSecret: false
+
+  MyCognitoAuthRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${APIName}-cognito-auth
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: cognito-identity.amazonaws.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              ForAnyValue:StringLike:
+                "cognito-identity.amazonaws.com:amr": "authenticated"
+
+  MyCognitoUnauthRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${APIName}-cognito-unauth
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: cognito-identity.amazonaws.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              ForAnyValue:StringLike:
+                "cognito-identity.amazonaws.com:amr": "unauthenticated"
+
+  MyCognitoIdentityPool:
+    Type: AWS::Cognito::IdentityPool
+    Properties:
+      IdentityPoolName: !Sub ${APIName}-id-pool
+      AllowUnauthenticatedIdentities: true
+      CognitoIdentityProviders:
+        - ClientId: !Ref MyCognitoAppClient
+          ProviderName: !GetAtt MyCognitoUserPool.ProviderName
+
+  MyCognitoIdentityPoolRoleMap:
+    Type: AWS::Cognito::IdentityPoolRoleAttachment
+    Properties:
+      IdentityPoolId: !Ref MyCognitoIdentityPool
+      Roles:
+        unauthenticated: !GetAtt MyCognitoUnauthRole.Arn
+        authenticated: !GetAtt MyCognitoAuthRole.Arn
+
+  MyCognitoAuthRolePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub ${APIName}-cognito-auth-policy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - appsync:GraphQL
+            Resource:
+              - !Sub ${TodoGraphQLApi}/types/Mutation/fields/*
+      Roles:
+        - !GetAtt MyCognitoAuthRole.Arn
+
+  MyCognitoUnauthRolePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub ${APIName}-cognito-unauth-policy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - appsync:GraphQL
+            Resource:
+              - !Sub ${TodoGraphQLApi}/*
+      Roles:
+        - !GetAtt MyCognitoUnauthRole.Arn
 
   TodoAppSyncSchema:
     Type: "AWS::AppSync::GraphQLSchema"
