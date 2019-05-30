@@ -12,4 +12,5 @@ exports.handler2 = async (event, context) => {
 exports.postCognitoAuth = async (event, context) => {
   console.log('This is triggered by Cognito PostAuthentication')
   console.log('Event payload', event)
+  return event
 }

@@ -106,7 +106,7 @@ Resources:
   MyCognitoIdentityPool:
     Type: AWS::Cognito::IdentityPool
     Properties:
-      IdentityPoolName: !Sub ${APIName}-id-pool
+      IdentityPoolName: "My Todo app identity pool"
       AllowUnauthenticatedIdentities: true
       CognitoIdentityProviders:
         - ClientId: !Ref MyCognitoAppClient
@@ -133,7 +133,7 @@ Resources:
             Resource:
               - !Sub ${TodoGraphQLApi}/types/Mutation/fields/*
       Roles:
-        - !GetAtt MyCognitoAuthRole.Arn
+        - !Ref MyCognitoAuthRole
 
   MyCognitoUnauthRolePolicy:
     Type: AWS::IAM::Policy
@@ -148,7 +148,7 @@ Resources:
             Resource:
               - !Sub ${TodoGraphQLApi}/*
       Roles:
-        - !GetAtt MyCognitoUnauthRole.Arn
+        - !Ref MyCognitoUnauthRole
 
   TodoAppSyncSchema:
     Type: "AWS::AppSync::GraphQLSchema"
