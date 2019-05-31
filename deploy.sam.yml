@@ -49,7 +49,10 @@ Resources:
       Handler: index.postCognitoAuth
       Role: !GetAtt MyCognitoLambdaRole.Arn
       Runtime: nodejs8.10
-      CodeUri: ./index.js
+      CodeUri: .
+      Environment:
+        Variables:
+          GRAPHQL_API_ENDPOINT: !GetAtt TodoGraphQLApi.GraphQLUrl
 
   MyPostCognitoAuthLambdaPermission:
     Type: AWS::Lambda::Permission
@@ -139,24 +142,10 @@ Resources:
             Action:
               - appsync:GraphQL
             Resource:
-              - !Sub ${TodoGraphQLApi}/types/Mutation/fields/*
+              - !Sub ${TodoGraphQLApi}/types/Mutation/fields/addTodo
       Roles:
         - !Ref MyCognitoAuthRole
-
-  MyCognitoUnauthRolePolicy:
-    Type: AWS::IAM::Policy
-    Properties:
-      PolicyName: !Sub ${APIName}-cognito-unauth-policy
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Action:
-              - appsync:GraphQL
-            Resource:
-              - !Sub ${TodoGraphQLApi}/*
-      Roles:
-        - !Ref MyCognitoUnauthRole
+        - !Ref MyCognitoLambdaRole
 
   TodoAppSyncSchema:
     Type: "AWS::AppSync::GraphQLSchema"
